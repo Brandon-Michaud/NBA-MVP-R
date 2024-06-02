@@ -1,0 +1,152 @@
+---
+title: "Data Cleaning"
+output: html_notebook
+---
+
+Load and inspect MVP voting data
+
+```{r}
+library(readr)
+
+mvp_voting <- read_csv('Data/mvp_voting.csv')
+mvp_voting
+```
+
+Select only columns pertaining to MVP voting results
+
+```{r}
+library(dplyr)
+
+mvp_voting <- mvp_voting %>% select(Player, Year, `Pts Won`, `Pts Max`, Share)
+mvp_voting
+```
+
+Load and inspect player stats
+
+```{r}
+player_stats <- read_csv('Data/player_stats.csv')
+player_stats
+```
+
+Remove Rank column
+
+```{r}
+player_stats <- player_stats %>% select(-Rk)
+player_stats
+```
+
+Remove asterisks after names
+
+```{r}
+library(stringr)
+
+player_stats$Player <- str_replace_all(player_stats$Player, fixed("*"), "")
+player_stats
+```
+
+Convert NA values for percentages to zeros. This also converts games started to zeros for those predating
+when that metric began being tracked. I will not use this column for my models, so it should have no impact
+
+```{r}
+player_stats <- player_stats %>% mutate(across(everything(), ~ replace_na(.x, 0)))
+```
+
+Group the dataframe by the combined player and year. Then, 
+
+```{r}
+handle_multiple_teams <- function(df) {
+  if (nrow(df) == 1) {
+    return(df)
+  }
+  else {
+    row <- df %>% filter(Tm == 'TOT')
+    if (nrow(row) == 0) {
+      return(df)
+    }
+    row$Tm <- as.character(df[nrow(df), "Tm"])
+    return(row)
+  }
+}
+player_stats$Tm <- as.character(player_stats$Tm)
+player_stats <- player_stats %>% group_by(Player, Year) %>% group_modify(~ handle_multiple_teams(.x))
+player_stats <- player_stats %>% ungroup()
+player_stats
+```
+
+Merge MVP voting with player stats
+
+```{r}
+player_stats_with_mvp_voting <- full_join(player_stats, mvp_voting, by = c("Player" = "Player", "Year" = "Year")) %>% mutate(
+  `Pts Won` = replace_na(`Pts Won`, 0),
+  `Pts Max` = replace_na(`Pts Max`, 0),
+  Share = replace_na(Share, 0)
+)
+player_stats_with_mvp_voting
+```
+
+Load and inspect team stats
+
+```{r}
+team_stats = read_csv('Data/team_stats.csv')
+team_stats
+```
+
+Remove asterisks and seeds from team names
+
+```{r}
+team_stats$Team <- str_replace_all(team_stats$Team, fixed("*"), "")
+team_stats$Team <- str_replace_all(team_stats$Team, "\\([^\\)]+\\)", "")
+team_stats$Team <- str_squish(team_stats$Team)
+team_stats
+```
+
+Change dashes for games back to zeros
+
+```{r}
+team_stats <- team_stats %>% mutate(GB = str_replace_all(GB, '—', '0'))
+team_stats
+```
+
+Convert games back from characters to numeric
+
+```{r}
+team_stats <- team_stats %>% mutate(GB = as.numeric(GB))
+team_stats
+```
+
+Load mapping from full name to abbreviation
+
+```{r}
+abbreviations <- list()
+
+lines <- read_lines("Data/abbreviations.csv")
+
+for (line in lines[-1]) {
+  split_line <- strsplit(line, ",")[[1]]
+  abbreviation <- split_line[1]
+  name <- split_line[2]
+  
+  abbreviations[[abbreviation]] <- name
+}
+```
+
+Add full names to player stats with MVP voting
+
+```{r}
+player_stats_with_mvp_voting <- player_stats_with_mvp_voting %>% mutate(Team = recode(Tm, !!!abbreviations))
+player_stats_with_mvp_voting
+```
+
+Merge player stats with MPV voting with team stats
+
+```{r}
+everything <- full_join(player_stats_with_mvp_voting, team_stats, by = c("Team" = "Team", "Year" = "Year"))
+everything
+```
+
+Save combined stats to csv
+
+```{r}
+write_csv(everything, 'Data/combined_stats.csv')
+```
+
