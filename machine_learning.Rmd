@@ -1,0 +1,59 @@
+---
+title: "Machine Learning"
+output: html_notebook
+---
+
+Load cleaned and combined data
+
+```{r}
+data = read_csv('Data/combined_stats.csv')
+data
+```
+
+Define columns that will be used for prediction
+
+```{r}
+predictors <- c('Age', 'G', 'MP', 'FG', 'FGA', 'FG%', '3P',
+                '3PA', '3P%', '2P', '2PA', '2P%', 'eFG%', 'FT', 'FTA', 'FT%', 'ORB',
+                'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS', 'Year', 'W', 'L', 'W/L%', 'GB', 'PS/G',
+                'PA/G', 'SRS')
+```
+
+Split data into training and testing sets
+
+```{r}
+train <- data %>% filter(Year < 2024)
+test <- data %>% filter(Year == 2024)
+train
+test
+```
+
+Make simple linear regression model using data
+
+```{r}
+model <- lm(train$Share ~ ., data = train %>% select(all_of(predictors)))
+summary(model)
+```
+
+Make predictions on the test data and evaluate performance
+
+```{r}
+slr_predictions <- predict(model, newdata = test)
+actual_values <- test$Share
+test_results <- test
+test_results$`SLR Prediction` <- slr_predictions
+test_results <- test_results %>% arrange(desc(Share))
+test_results
+slr_mse <- mean((slr_predictions - actual_values)^2)
+slr_mse
+```
+
+Add voting ranks
+
+```{r}
+test_results <- test_results %>% mutate(Rk = seq_len(n()))
+test_results <- test_results %>% arrange(desc(`SLR Prediction`))
+test_results <- test_results %>% mutate(`SLR Rk` = seq_len(n()))
+test_results
+```
+
