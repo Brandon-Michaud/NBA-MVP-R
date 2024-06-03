@@ -28,7 +28,7 @@ train
 test
 ```
 
-Make simple linear regression model using data
+Make multiple linear regression model using data
 
 ```{r}
 model <- lm(train$Share ~ ., data = train %>% select(all_of(predictors)))
@@ -38,22 +38,85 @@ summary(model)
 Make predictions on the test data and evaluate performance
 
 ```{r}
-slr_predictions <- predict(model, newdata = test)
+mlr_predictions <- predict(model, newdata = test)
 actual_values <- test$Share
 test_results <- test
-test_results$`SLR Prediction` <- slr_predictions
+test_results$`MLR Prediction` <- mlr_predictions
 test_results <- test_results %>% arrange(desc(Share))
 test_results
-slr_mse <- mean((slr_predictions - actual_values)^2)
-slr_mse
+mlr_mse <- mean((mlr_predictions - actual_values)^2)
+mlr_mse
+```
+
+Make ridge regression model
+
+```{r}
+x_ridge <- train %>% select(all_of(predictors)) %>% as.matrix()
+y_ridge <- train$Share
+ridge_model <- glmnet(x_ridge, y_ridge, alpha = 0)
+```
+
+Find best lambda for ridge regression model
+
+```{r}
+cv_ridge <- cv.glmnet(x_ridge, y_ridge, alpha = 0)
+best_lambda_ridge <- cv_ridge$lambda.min
+best_lambda_ridge
+```
+
+Make predictions using ridge regression model and evaluate performance
+
+```{r}
+ridge_predictions <- predict(ridge_model, s = best_lambda_ridge, newx = test %>% select(all_of(predictors)) %>% as.matrix()) %>% as.vector()
+actual_values <- test$Share
+test_results <- test_results %>% arrange(Player)
+test_results$`Ridge Prediction` <- ridge_predictions
+test_results <- test_results %>% arrange(desc(Share))
+test_results
+ridge_mse <- mean((ridge_predictions - actual_values)^2)
+ridge_mse
+```
+
+Make lasso model
+
+```{r}
+x_lasso <- train %>% select(all_of(predictors)) %>% as.matrix()
+y_lasso <- train$Share
+lasso_model <- glmnet(x_lasso, y_lasso, alpha = 1)
+```
+
+Find best lambda for lasso model
+
+```{r}
+cv_lasso <- cv.glmnet(x_lasso, y_lasso, alpha = 1)
+best_lambda_lasso <- cv_lasso$lambda.min
+best_lambda_lasso
+```
+
+Make predictions using lasso model and evaluate performance
+
+```{r}
+lasso_predictions <- predict(lasso_model, s = best_lambda_lasso, newx = test %>% select(all_of(predictors)) %>% as.matrix()) %>% as.vector()
+actual_values <- test$Share
+test_results <- test_results %>% arrange(Player)
+test_results$`Lasso Prediction` <- lasso_predictions
+test_results <- test_results %>% arrange(desc(Share))
+test_results
+lasso_mse <- mean((lasso_predictions - actual_values)^2)
+lasso_mse
 ```
 
 Add voting ranks
 
 ```{r}
+test_results <- test_results %>% arrange(desc(Share))
 test_results <- test_results %>% mutate(Rk = seq_len(n()))
-test_results <- test_results %>% arrange(desc(`SLR Prediction`))
-test_results <- test_results %>% mutate(`SLR Rk` = seq_len(n()))
+test_results <- test_results %>% arrange(desc(`MLR Prediction`))
+test_results <- test_results %>% mutate(`MLR Rk` = seq_len(n()))
+test_results <- test_results %>% arrange(desc(`Ridge Prediction`))
+test_results <- test_results %>% mutate(`Ridge Rk` = seq_len(n()))
+test_results <- test_results %>% arrange(desc(`Lasso Prediction`))
+test_results <- test_results %>% mutate(`Lasso Rk` = seq_len(n()))
+test_results <- test_results %>% arrange(desc(Share))
 test_results
 ```
-
