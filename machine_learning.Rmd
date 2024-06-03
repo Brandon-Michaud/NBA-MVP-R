@@ -3,6 +3,14 @@ title: "Machine Learning"
 output: html_notebook
 ---
 
+Load required packages
+
+```{r}
+library(tidyverse)
+library(glmnet)
+```
+
+
 Load cleaned and combined data
 
 ```{r}
@@ -31,14 +39,14 @@ test
 Make multiple linear regression model using data
 
 ```{r}
-model <- lm(train$Share ~ ., data = train %>% select(all_of(predictors)))
-summary(model)
+mlr_model <- lm(train$Share ~ ., data = train %>% select(all_of(predictors)))
+summary(mlr_model)
 ```
 
 Make predictions on the test data and evaluate performance
 
 ```{r}
-mlr_predictions <- predict(model, newdata = test)
+mlr_predictions <- predict(mlr_model, newdata = test)
 actual_values <- test$Share
 test_results <- test
 test_results$`MLR Prediction` <- mlr_predictions
