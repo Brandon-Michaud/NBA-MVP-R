@@ -35,4 +35,4 @@ Linear regression, ridge regression, lasso regression, quadratic regression, and
 
 ## Questions or Recommendations
 If you are looking over the project and have any questions or recommendations, I would love to hear them.
-You can send me an email with any questions or recommendations. You can also submit a pull request.
+You can send me an email (using the email on my profile) with any questions or recommendations. You can also submit a pull request.
