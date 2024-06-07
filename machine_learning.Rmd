@@ -1,6 +1,8 @@
 ---
 title: "Machine Learning"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 Load required packages
@@ -32,29 +34,41 @@ Split data into training and testing sets
 ```{r}
 train <- data %>% filter(Year < 2024)
 test <- data %>% filter(Year == 2024)
-train
-test
+actual_values <- test$Share
+test_results <- test
 ```
 
-Make multiple linear regression model using data
+Define a function to calculate the $R^2$ for a model
+
+```{r}
+r2_score <- function(y_true, y_pred) {
+  ss_total <- sum((y_true - mean(y_true))^2)
+  ss_residual <- sum((y_true - y_pred)^2)
+  r2 <- 1 - (ss_residual / ss_total)
+  return(r2)
+}
+
+```
+
+Make multiple linear regression model using data and determine fit
 
 ```{r}
 mlr_model <- lm(train$Share ~ ., data = train %>% select(all_of(predictors)))
-summary(mlr_model)
+mlr_coef <- coef(mlr_model)
+r2_score(train$Share, mlr_model$fitted.values)
 ```
+
+The $R^2$ of the model is very low, so the model is not a great fit
 
 Make predictions on the test data and evaluate performance
 
 ```{r}
 mlr_predictions <- predict(mlr_model, newdata = test)
-actual_values <- test$Share
-test_results <- test
 test_results$`MLR Prediction` <- mlr_predictions
-test_results <- test_results %>% arrange(desc(Share))
 test_results
-mlr_mse <- mean((mlr_predictions - actual_values)^2)
-mlr_mse
 ```
+
+An assumption of MLR is that the predictors are uncorrelated. In reality this is not the case. For example, it is clear that defensive rebounds are correlated with total rebounds and wins are correlated with win percentage. The MLR model might be performing poorly because some of the predictors are highly correlated. It could also be overfitting noisy data and outliers. To combat this, we can use a ridge regression model that adds a term to the cost function that penalizes large coefficients. 
 
 Make ridge regression model
 
@@ -64,26 +78,28 @@ y_ridge <- train$Share
 ridge_model <- glmnet(x_ridge, y_ridge, alpha = 0)
 ```
 
-Find best lambda for ridge regression model
+Find best lambda for ridge regression model using cross validation and find fit
 
 ```{r}
 cv_ridge <- cv.glmnet(x_ridge, y_ridge, alpha = 0)
 best_lambda_ridge <- cv_ridge$lambda.min
 best_lambda_ridge
+ridge_coef <- as.matrix(coef(ridge_model, s = best_lambda_ridge)) %>% as.vector()
+ridge_fitted_values <- predict(ridge_model, newx = x_ridge, s = best_lambda_ridge, type = "response")
+r2_score(train$Share, ridge_fitted_values)
 ```
 
-Make predictions using ridge regression model and evaluate performance
+The $R^2$ of this ridge model is worst than the $R^2$ of the MLR model. This could mean that the regularization penalty is too much
+
+Make predictions using ridge regression model
 
 ```{r}
 ridge_predictions <- predict(ridge_model, s = best_lambda_ridge, newx = test %>% select(all_of(predictors)) %>% as.matrix()) %>% as.vector()
-actual_values <- test$Share
-test_results <- test_results %>% arrange(Player)
 test_results$`Ridge Prediction` <- ridge_predictions
-test_results <- test_results %>% arrange(desc(Share))
 test_results
-ridge_mse <- mean((ridge_predictions - actual_values)^2)
-ridge_mse
 ```
+
+Another possible linear model to make is a least absolute shrinkage and selection operator model, lasso for short. This model introduces a penalty for non-zero predictor coefficients. This results in sparse models, which can essentially eliminate predictors if they are found to be unneeded. In short, lasso performs feature selection. In this way, lasso can also deal with multicollinearity among predictors
 
 Make lasso model
 
@@ -93,25 +109,38 @@ y_lasso <- train$Share
 lasso_model <- glmnet(x_lasso, y_lasso, alpha = 1)
 ```
 
-Find best lambda for lasso model
+Find best lambda for lasso model using cross validation and find fit
 
 ```{r}
 cv_lasso <- cv.glmnet(x_lasso, y_lasso, alpha = 1)
 best_lambda_lasso <- cv_lasso$lambda.min
 best_lambda_lasso
+lasso_coef <- coef(lasso_model, s = best_lambda_lasso) %>% as.vector()
+lasso_fitted_values <- predict(lasso_model, newx = x_lasso, s = best_lambda_lasso, type = "response")
+r2_score(train$Share, lasso_fitted_values)
 ```
 
-Make predictions using lasso model and evaluate performance
+The $R^2$ of this lasso model is very similar to the $R^2$ of the MLR model. This again indicates that there are problems beyond predictor multicollinearity
+
+Compare coefficients across models
+
+```{r}
+combined_coefficients <- data.frame(
+  MLR = mlr_coef,
+  Ridge = ridge_coef,
+  Lasso = lasso_coef
+)
+combined_coefficients
+```
+
+Looking at the coefficients between the models, they are very similar, except Lasso has much smaller coefficients for total rebounds and points allowed per game. The total rebounds, as mentioned, can be calculated from adding the offensive and defensive rebounds, and the model did not see any need to keep it separately. The points allowed per game having such a zero coefficient is surprising. The model thinks it can achieve comparable results without this predictor
+
+Make predictions using lasso model
 
 ```{r}
 lasso_predictions <- predict(lasso_model, s = best_lambda_lasso, newx = test %>% select(all_of(predictors)) %>% as.matrix()) %>% as.vector()
-actual_values <- test$Share
-test_results <- test_results %>% arrange(Player)
 test_results$`Lasso Prediction` <- lasso_predictions
-test_results <- test_results %>% arrange(desc(Share))
 test_results
-lasso_mse <- mean((lasso_predictions - actual_values)^2)
-lasso_mse
 ```
 
 Add voting ranks
@@ -128,3 +157,87 @@ test_results <- test_results %>% mutate(`Lasso Rk` = seq_len(n()))
 test_results <- test_results %>% arrange(desc(Share))
 test_results
 ```
+
+Since no model tested thus far achieves a reasonable $R^2$, the problem could be that the relationship is non-linear and we have only used linear models thus far. We can test to see if the residuals are normally distributed about 0. If they are, the model is a good fit, otherwise, it is not
+
+Test if residuals follow normal distribution for the MLR model
+
+```{r}
+mlr_residuals <- residuals(mlr_model)
+ks.test(mlr_residuals, "pnorm", mean=mean(mlr_residuals), sd=sd(mlr_residuals))
+```
+
+Since the p-value is incredibly small, there is a high likelihood that the residuals do not come from a normal distribution. This means that the linear model is not a good predictor of the share of MVP votes based on the predictors that I chose.
+
+Plot the residuals against the predicted values to visualize the non-normality
+
+```{r}
+mlr_limit <- max(abs(mlr_model$residuals))
+ggplot(train, aes(x = mlr_model$fitted.values, y = mlr_model$residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residual Plot",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal() +
+  ylim(-mlr_limit, mlr_limit)
+```
+
+Clearly, the residuals are not normally distributed about 0 for each fitted value. This means that the linear model is not a good fit. The residuals tend to be positive for larger fitted values. This means that the model underestimates the share of votes players get when they do get a share. There also appears to be line in the plot. Upon further investigation, this line has a slope of -1. This line appears because the linear model almost never predicts a zero percent share. It will instead predict a very small number (or maybe a larger number for players who the model thinks deserved more credit). The vast majority of players each year get zero votes, however, so for most points, the residual is the actual value (zero) minus the fitted value. This produces the line with a -1 slope seen in the residual plot. A model that fits the data well should have a horizontal asymptote around zero. This means we need a non-linear model.
+
+Try fitting a quadratic model
+
+```{r}
+predictors_backticks <- sapply(predictors, function(x) paste0("`", x, "`"))
+squared_predictors <- paste0("I(", predictors_backticks, "^2)")
+quad_predictors <- c(predictors_backticks, squared_predictors)
+quad_formula <- as.formula(paste("train$Share ~", paste(quad_predictors, collapse = " + ")))
+quad_model <- lm(quad_formula, data = train)
+r2_score(train$Share, quad_model$fitted.values)
+```
+
+The quadratic model is able to achieve a much better $R^2$ score than any linear model tested. The $R^2$ score is still not good, however
+
+Visualize the fit of the quadratic model
+
+```{r}
+quad_limit <- max(abs(quad_model$residuals))
+ggplot(train, aes(x = quad_model$fitted.values, y = quad_model$residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residual Plot",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal() +
+  ylim(-quad_limit, quad_limit)
+```
+
+Once again the line with a slope of -1 appear in the residual plot and the residuals are not normally distributed about zero. We can try increasing the complexity of the model to cubic to see if a better solution can be found
+
+Create a cubic model
+
+```{r}
+cubed_predictors <- paste0("I(", predictors_backticks, "^3)")
+cubic_predictors <- c(predictors_backticks, squared_predictors, cubed_predictors)
+cubic_formula <- as.formula(paste("train$Share ~", paste(cubic_predictors, collapse = " + ")))
+cubic_model <- lm(cubic_formula, data = train)
+r2_score(train$Share, cubic_model$fitted.values)
+```
+
+The cubic model once again significantly improves the $R^2$ score. 
+
+Visualize the fit of the cubic model
+
+```{r}
+cubic_limit <- max(abs(cubic_model$residuals))
+ggplot(train, aes(x = cubic_model$fitted.values, y = cubic_model$residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residual Plot",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal() +
+  ylim(-cubic_limit, cubic_limit)
+```
+
+The line with a -1 slope is still present and the residuals still do not appear to be normally distributed about zero. We could continue to try to add complexity to the model, but the data may not lend itself to being modeled. The MVP selection process is not formulaic by any means. The media narrative plays a large role in who receives votes. People have differing opinions and values when it comes to voting. There are certainly other external factors not captured by the data that impact voting. Making a model that encompasses all of this is practically impossible

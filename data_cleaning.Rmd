@@ -1,13 +1,19 @@
 ---
 title: "Data Cleaning"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
+
+Load required packages
+
+```{r}
+library(tidyverse)
+```
 
 Load and inspect MVP voting data
 
 ```{r}
-library(readr)
-
 mvp_voting <- read_csv('Data/mvp_voting.csv')
 mvp_voting
 ```
@@ -15,8 +21,6 @@ mvp_voting
 Select only columns pertaining to MVP voting results
 
 ```{r}
-library(dplyr)
-
 mvp_voting <- mvp_voting %>% select(Player, Year, `Pts Won`, `Pts Max`, Share)
 mvp_voting
 ```
@@ -38,8 +42,6 @@ player_stats
 Remove asterisks after names
 
 ```{r}
-library(stringr)
-
 player_stats$Player <- str_replace_all(player_stats$Player, fixed("*"), "")
 player_stats
 ```
@@ -51,7 +53,7 @@ when that metric began being tracked. I will not use this column for my models, 
 player_stats <- player_stats %>% mutate(across(everything(), ~ replace_na(.x, 0)))
 ```
 
-Group the dataframe by the combined player and year. Then, 
+Group the dataframe by the combined player and year. Then, handle cases where a player played for multiple teams in one season by representing only the last team played for
 
 ```{r}
 handle_multiple_teams <- function(df) {
